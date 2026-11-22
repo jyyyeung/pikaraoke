@@ -496,6 +496,33 @@ class TestSearch:
         assert sm.search("karaoke") == []
         assert sm.search("waterloo") == [song]
 
+    def test_pinyin_finds_a_han_title(self, tmp_path, mock_db):
+        song = "/songs/稻香---aaaaaaaaaaa.mp4"
+        sm = _manager(tmp_path, mock_db, [song])
+        assert sm.search("daoxiang") == [song]
+
+    def test_han_text_still_finds_the_title(self, tmp_path, mock_db):
+        song = "/songs/稻香---aaaaaaaaaaa.mp4"
+        sm = _manager(tmp_path, mock_db, [song])
+        assert sm.search("稻香") == [song]
+
+    def test_pinyin_tone_marks_are_folded(self, tmp_path, mock_db):
+        song = "/songs/稻香---aaaaaaaaaaa.mp4"
+        sm = _manager(tmp_path, mock_db, [song])
+        assert sm.search("dào xiāng") == [song]
+
+    def test_pinyin_polyphone_uses_the_phrase_reading(self, tmp_path, mock_db):
+        song = "/songs/重庆森林---aaaaaaaaaaa.mp4"
+        sm = _manager(tmp_path, mock_db, [song])
+        assert sm.search("chongqing") == [song]
+        assert sm.search("zhongqing") == []
+
+    def test_terms_can_mix_pinyin_and_han(self, tmp_path, mock_db):
+        song = "/songs/周杰伦 - 稻香---aaaaaaaaaaa.mp4"
+        sm = _manager(tmp_path, mock_db, [song])
+        assert sm.search("zhoujielun 稻香") == [song]
+        assert sm.search("周杰伦 daoxiang") == [song]
+
 
 class TestSearchUsesUntidiedFilename:
     """The match key is the raw stem, so terms regex_tidy strips are still findable."""

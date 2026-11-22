@@ -16,8 +16,20 @@ from pikaraoke.lib.metadata_parser import (
     sanitize_filename,
     youtube_id_suffix,
 )
-from pikaraoke.lib.pinyin import alpha_key
+from pikaraoke.lib.pinyin import alpha_key, han_to_pinyin
 from pikaraoke.lib.song_list import SongList
+
+
+def _search_key(raw: str) -> str:
+    """Match text for `raw`: the stem text plus its pinyin when it has Han.
+
+    A term can then be the title's characters or its reading, so `daoxiang` and
+    稻香 find the same song. Latin stems are not duplicated; han_to_pinyin
+    returns them untouched.
+    """
+    text = normalize_for_comparison(raw)
+    pinyin = han_to_pinyin(raw)
+    return text if pinyin == raw else f"{text} {normalize_for_comparison(pinyin)}"
 
 
 def _is_same_file(src: str, dst: str) -> bool:
@@ -124,9 +136,10 @@ class SongManager:
     def _match_index(self) -> list[tuple[str, str, str | None, str]]:
         """(raw, normalised, alpha key, path) tuples, rebuilt when the songs change.
 
-        Raw is the accent-folded lowercase stem; normalised folds its punctuation
-        too. Alpha is the A-Z strip key, derived here once because the filter and
-        both bar renderers would otherwise repeat it on every request.
+        Raw is the accent-folded lowercase stem. Normalised is its punctuation-
+        folded text plus the pinyin of any Han characters, so search terms can be
+        either. Alpha is the A-Z strip key. The last two are derived here once
+        because the filter, the bar and search would otherwise repeat them.
         """
         # Read the version BEFORE iterating: a mutation racing this rebuild then stores
         # newer data under an older version and rebuilds next call. Reading it after
@@ -136,7 +149,7 @@ class SongManager:
             self._index = [
                 (
                     raw := remove_accents(self.filename_from_path(p, tidy=False)).lower(),
-                    normalize_for_comparison(raw),
+                    _search_key(raw),
                     alpha_key(raw),
                     p,
                 )
@@ -163,10 +176,11 @@ class SongManager:
         ]
 
     def search(self, query: str, folder: str | None = None) -> list[str]:
-        """Songs whose filename contains every term, in list order.
+        """Songs whose filename or pinyin reading contains every term, in list order.
 
         Query and filename are both punctuation-folded, so `AC/DC` finds `AC-DC`.
-        Pinyin is not expanded here: typing `daoxiang` does not find 稻香.
+        Each term matches either the filename text or its pinyin, so `daoxiang`
+        and 稻香 find the same song.
         """
         terms = normalize_for_comparison(remove_accents(query)).split()
         index = self._scoped_index(folder)

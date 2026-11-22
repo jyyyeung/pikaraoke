@@ -83,6 +83,12 @@ def _browse(
 
 
 class TestFilter:
+    def test_q_matches_a_han_title_by_pinyin(self, client, app):
+        songs = ["/songs/稻香.mp4", "/songs/十年.mp4"]
+        body = _browse(client, app, songs, "?q=daoxiang").data.decode()
+        assert "稻香" in body
+        assert "十年" not in body
+
     def test_q_narrows_the_list(self, client, app):
         songs = ["/songs/Abba - Waterloo.mp4", "/songs/Queen - Bohemian Rhapsody.mp4"]
         response = _browse(client, app, songs, "?q=waterloo")
