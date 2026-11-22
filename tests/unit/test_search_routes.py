@@ -76,6 +76,14 @@ class TestAcquisitionOnly:
     def test_autocomplete_endpoint_is_gone(self, client):
         assert client.get("/autocomplete?q=abba").status_code == 404
 
+    def test_renders_the_recent_searches_control(self, client):
+        """The list itself is filled from localStorage after load; the container must exist."""
+        response, _ = _search(client, [MISSING], {})
+        body = response.data.decode()
+        assert 'id="recent-searches"' in body
+        assert "Clear recent searches" in body
+        assert "js/recent-searches.js" in body
+
 
 class TestLibraryMatches:
     def test_looked_up_once_for_the_whole_page(self, client):

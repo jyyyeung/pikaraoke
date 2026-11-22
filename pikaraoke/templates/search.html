@@ -1,4 +1,5 @@
 {% extends 'base.html' %} {% block scripts %}
+<script src="{{ url_for('static', filename='js/recent-searches.js') }}"></script>
 <style>
 	/* --- Search result list ---------------------------------- */
 	ul.search_result_items {
@@ -200,6 +201,30 @@
 <script>
 	$(function () {
 		const searchInput = document.getElementById("search_string_input");
+		const recentSearchesDetails = document.getElementById("recent-searches");
+		const recentSearchesList = document.getElementById("recent-searches-list");
+
+		// This list is local to the device, so it is rendered after load rather than
+		// server-side. textContent, not HTML: the stored terms are user input.
+		function renderRecentSearches() {
+			const terms = window.RecentSearches.load();
+			recentSearchesList.replaceChildren();
+			terms.forEach(function (term) {
+				const button = document.createElement("button");
+				button.type = "button";
+				button.className = "tag is-light is-clickable";
+				button.textContent = term;
+				button.addEventListener("click", function () {
+					searchInput.value = term;
+					runSearch();
+				});
+				recentSearchesList.appendChild(button);
+			});
+			recentSearchesDetails.hidden = terms.length === 0;
+			if (terms.length === 0) {
+				recentSearchesDetails.open = false;
+			}
+		}
 
 		$(".direct-download").click(function () {
 			const url = $("#direct-download-url").val();
@@ -222,6 +247,7 @@
 		function runSearch() {
 			const term = searchInput.value.trim();
 			if (!term) return;
+			window.RecentSearches.record(term);
 			$("#searching_loader").removeClass("is-hidden");
 			$("#searching_loader #search_term").text(term);
 			$("#search-link").attr("disabled", "true").addClass("is-loading");
@@ -265,6 +291,13 @@
 			// are the ways back in.
 			searchInput.focus();
 		}
+
+		renderRecentSearches();
+
+		$("#clear-recent-searches").on("click", function () {
+			window.RecentSearches.clear();
+			renderRecentSearches();
+		});
 
 		// A disclosure, not a setting: the panel starts hidden via its inline style.
 		$("#show-advanced").on("click", function (e) {
@@ -527,6 +560,18 @@
 				<a id="show-advanced" aria-expanded="false">{% trans %}Advanced{% endtrans %}</a>
 			</span>
 		</div>
+
+		<details id="recent-searches" class="mb-3" hidden>
+			<summary class="is-size-7 has-text-link">
+				{# MSG: Label on the collapsible list of recent YouTube searches. #}
+				{% trans %}Recent searches{% endtrans %}
+			</summary>
+			<div id="recent-searches-list" class="tags mt-2"></div>
+			<button type="button" id="clear-recent-searches" class="button is-small is-ghost has-text-danger px-0">
+				{# MSG: Button which clears the list of recent YouTube searches. #}
+				{% trans %}Clear recent searches{% endtrans %}
+			</button>
+		</details>
 
 		<div id="advanced-settings" class="box has-background-dark mt-2" style="display: none">
 			<div class="control">
