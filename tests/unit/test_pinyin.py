@@ -1,6 +1,6 @@
 """Tests for the pinyin readings behind the A-Z strip and the sort order."""
 
-from pikaraoke.lib.pinyin import han_to_pinyin, pinyin_initial
+from pikaraoke.lib.pinyin import alpha_key, han_to_pinyin, pinyin_initial
 
 
 class TestPinyinInitial:
@@ -40,3 +40,31 @@ class TestHanToPinyin:
 
     def test_text_without_han_is_untouched(self):
         assert han_to_pinyin("99 Luftballons - Abba") == "99 Luftballons - Abba"
+
+
+class TestAlphaKey:
+    def test_latin_initial(self):
+        assert alpha_key("abba - waterloo") == "a"
+
+    def test_digit_groups_as_numeric(self):
+        assert alpha_key("99 luftballons") == "numeric"
+
+    def test_han_initial(self):
+        assert alpha_key("稻香") == "d"
+
+    def test_chinese_numeral_files_as_han(self):
+        assert alpha_key("一生所爱") == "y"
+
+    def test_fullwidth_digit_groups_as_numeric(self):
+        assert alpha_key("１２３") == "numeric"
+
+    def test_punctuation_has_no_slot(self):
+        assert alpha_key("(i can't get no) satisfaction") is None
+
+    def test_empty_has_no_slot(self):
+        assert alpha_key("") is None
+
+    def test_bar_key_agrees_with_the_sort_key(self):
+        """The windowed and full-string readers must agree on the first syllable."""
+        for title in ("稻香", "重庆森林", "周杰倫", "一生所爱", "A-Lin - 给我一个理由忘记"):
+            assert alpha_key(title) == han_to_pinyin(title)[:1]

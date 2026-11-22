@@ -9,8 +9,10 @@ same ordering as Latin ones.
 
 from functools import lru_cache
 
-# pypinyin's longest phrase is shorter than this, so the window carries enough
-# context to read a polyphone at the head of a title in its phrase's reading.
+# The bar key and the sort key both read pypinyin's phrase dictionary, and its
+# longest phrase is shorter than this, so the first syllable is fixed by this
+# prefix. Keeping it short also lets titles with a common opening share a cache
+# entry.
 _PHRASE_WINDOW = 8
 
 _HAN_RANGES = (
@@ -26,23 +28,40 @@ def _is_han(char: str) -> bool:
     return any(start <= code <= end for start, end in _HAN_RANGES)
 
 
+def alpha_key(raw: str) -> str | None:
+    """A-Z strip key for a lowercase filename stem, or None when it has no slot.
+
+    ASCII is settled without pypinyin, so a Latin-only library never loads it.
+    Han is filed under its pinyin initial ahead of the digit test, because 一 is
+    both a Chinese numeral and Unicode's idea of a number; a Chinese library
+    files it under Y.
+    """
+    first = raw[:1]
+    if not first:
+        return None
+    if first.isascii():
+        if first.isalpha():
+            return first
+        return "numeric" if first.isnumeric() else None
+    initial = pinyin_initial(raw[:_PHRASE_WINDOW])
+    if initial:
+        return initial
+    return "numeric" if first.isnumeric() else None
+
+
 @lru_cache(maxsize=4096)
 def pinyin_initial(text: str) -> str | None:
     """Lowercase pinyin initial of `text`'s leading Han character, or None.
 
-    Reads the leading phrase rather than the one character so polyphones come out
-    right: 重庆 is C, while 重 on its own is Z. Imported inside the function
-    because pypinyin spends a third of a second loading its dictionaries, which a
-    Latin-only library should not pay at startup.
+    Reads the same window and dictionary as han_to_pinyin, so a title's bar
+    letter cannot disagree with where its sort key files it. pypinyin is
+    imported inside because it spends a third of a second loading dictionaries,
+    which a Latin-only library should not pay at startup.
     """
     if not text or not _is_han(text[0]):
         return None
-    from pypinyin import Style, lazy_pinyin
-
-    syllables = lazy_pinyin(text[:_PHRASE_WINDOW], style=Style.NORMAL, errors="ignore")
-    if not syllables or not syllables[0] or not syllables[0][0].isalpha():
-        return None
-    return syllables[0][0].lower()
+    initial = han_to_pinyin(text[:_PHRASE_WINDOW])[:1]
+    return initial if initial.isascii() and initial.isalpha() else None
 
 
 @lru_cache(maxsize=8192)

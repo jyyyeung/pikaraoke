@@ -16,28 +16,8 @@ from pikaraoke.lib.metadata_parser import (
     sanitize_filename,
     youtube_id_suffix,
 )
-from pikaraoke.lib.pinyin import pinyin_initial
+from pikaraoke.lib.pinyin import alpha_key
 from pikaraoke.lib.song_list import SongList
-
-
-def _alpha_key(raw: str) -> str | None:
-    """Alpha-bar key for a match key, or None when the bar has no slot for it.
-
-    Digits collapse into 'numeric'. A leading Han character is filed under its
-    pinyin initial before the digit test, because 一 is both a Chinese numeral
-    and Unicode's idea of a number; a Chinese library files it under Y.
-    """
-    first = raw[:1]
-    if not first:
-        return None
-    initial = pinyin_initial(raw)
-    if initial:
-        return initial
-    if first.isnumeric():
-        return "numeric"
-    if first.isascii() and first.isalpha():
-        return first
-    return None
 
 
 def _is_same_file(src: str, dst: str) -> bool:
@@ -92,7 +72,8 @@ class SongManager:
         self._db = db
         self._events = events
         self._get_title_tidy = get_title_tidy
-        self._index: list[tuple[str, str, str]] = []  # (raw key, normalised key, path)
+        self._index: list[tuple[str, str, str | None, str]] = []
+        # (raw key, normalised key, alpha key, path)
         self._index_version: int | None = None
         self._folders: dict[str, list[str]] = {}  # folder key -> immediate subfolder names
         self._folders_version: int | None = None
@@ -140,10 +121,12 @@ class SongManager:
     # also makes the key independent of the enable_title_tidy preference.
     # ------------------------------------------------------------------
 
-    def _match_index(self) -> list[tuple[str, str, str]]:
-        """(raw key, normalised key, path) triples, rebuilt when the song list changes.
+    def _match_index(self) -> list[tuple[str, str, str | None, str]]:
+        """(raw, normalised, alpha key, path) tuples, rebuilt when the songs change.
 
-        Raw is the accent-folded lowercase stem; normalised folds its punctuation too.
+        Raw is the accent-folded lowercase stem; normalised folds its punctuation
+        too. Alpha is the A-Z strip key, derived here once because the filter and
+        both bar renderers would otherwise repeat it on every request.
         """
         # Read the version BEFORE iterating: a mutation racing this rebuild then stores
         # newer data under an older version and rebuilds next call. Reading it after
@@ -154,6 +137,7 @@ class SongManager:
                 (
                     raw := remove_accents(self.filename_from_path(p, tidy=False)).lower(),
                     normalize_for_comparison(raw),
+                    alpha_key(raw),
                     p,
                 )
                 for p in self.songs
@@ -161,7 +145,7 @@ class SongManager:
             self._index_version = version
         return self._index
 
-    def _scoped_index(self, folder: str | None) -> list[tuple[str, str, str]]:
+    def _scoped_index(self, folder: str | None) -> list[tuple[str, str, str | None, str]]:
         """Match index entries, narrowed to one folder's direct children.
 
         `None` means the whole library; `""` means the download path itself. The
@@ -173,8 +157,8 @@ class SongManager:
             return index
         target = self.folder_path(folder)
         return [
-            (raw, norm, path)
-            for raw, norm, path in index
+            (raw, norm, alpha, path)
+            for raw, norm, alpha, path in index
             if os.path.dirname(os.path.normpath(path)) == target
         ]
 
@@ -182,15 +166,16 @@ class SongManager:
         """Songs whose filename contains every term, in list order.
 
         Query and filename are both punctuation-folded, so `AC/DC` finds `AC-DC`.
+        Pinyin is not expanded here: typing `daoxiang` does not find 稻香.
         """
         terms = normalize_for_comparison(remove_accents(query)).split()
         index = self._scoped_index(folder)
         if not terms:
-            return [path for _, _, path in index]
+            return [path for *_, path in index]
         if len(terms) == 1:
             term = terms[0]
-            return [path for _, norm, path in index if term in norm]
-        return [path for _, norm, path in index if all(t in norm for t in terms)]
+            return [path for _, norm, _, path in index if term in norm]
+        return [path for _, norm, _, path in index if all(t in norm for t in terms)]
 
     def songs_by_letter(self, letter: str, folder: str | None = None) -> list[str]:
         """Songs whose alpha-bar key is `letter`, or hold a digit when 'numeric'.
@@ -201,7 +186,7 @@ class SongManager:
         """
         target = letter.lower()
         index = self._scoped_index(folder)
-        return [path for raw, _, path in index if _alpha_key(raw) == target]
+        return [path for _, _, alpha, path in index if alpha == target]
 
     # ------------------------------------------------------------------
     # Folders
@@ -257,9 +242,8 @@ class SongManager:
         if self._initials_version != version:
             initials: dict[str | None, set[str]] = {None: set()}
             prefix = os.path.normpath(self.download_path) + os.sep
-            for raw, _, path in self._match_index():
-                key = _alpha_key(raw)
-                if key is None:
+            for _, _, alpha, path in self._match_index():
+                if alpha is None:
                     continue
                 directory = os.path.dirname(os.path.normpath(path))
                 scope = (
@@ -267,8 +251,8 @@ class SongManager:
                     if directory.startswith(prefix)
                     else ""
                 )
-                initials[None].add(key)
-                initials.setdefault(scope, set()).add(key)
+                initials[None].add(alpha)
+                initials.setdefault(scope, set()).add(alpha)
             self._initials = initials
             self._initials_version = version
         return self._initials.get(folder, set())
@@ -283,10 +267,9 @@ class SongManager:
         which already pays one O(songs) pass to filter the set.
         """
         keys = set()
-        for raw, _, path in self._match_index():
-            key = _alpha_key(raw)
-            if key and path in paths:
-                keys.add(key)
+        for _, _, alpha, path in self._match_index():
+            if alpha and path in paths:
+                keys.add(alpha)
         return keys
 
     def songs_in_folder(self, folder: str) -> list[str]:
